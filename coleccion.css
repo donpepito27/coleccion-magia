@@ -31,3 +31,19 @@
 #transferStatus:not(:empty){margin-top:14px;color:#eed9cd}
 
 .link-fields{min-width:0;margin:0;border:1px solid #484641;border-radius:5px;padding:12px}.link-fields legend{font-size:14px;padding:0 4px}.link-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}.link-fields button{font-size:13px}@media(max-width:600px){.link-row{grid-template-columns:1fr}}
+
+#pastePreview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+#pastePreview > div {
+  display: grid;
+  gap: 4px;
+}
+#pastePreview img {
+  width: 96px;
+  height: 112px;
+  object-fit: contain;
+}

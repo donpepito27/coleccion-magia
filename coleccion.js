@@ -145,13 +145,65 @@ function readLinks(){
   return sources;
 }
 $('moreLinks').onclick=()=>appendLink();
-let pasted=[],pasteSession=0;
-function clearPasted(){pasteSession++;for(const item of pasted)URL.revokeObjectURL(item.url);pasted=[];$('pastePreview').replaceChildren();$('pasteStatus').textContent=''}
-function addPasted(blobs){for(const blob of blobs){const url=URL.createObjectURL(blob),img=document.createElement('img');img.src=url;img.width=64;img.height=64;img.style.objectFit='contain';img.alt='Foto pegada '+(pasted.length+1);pasted.push({blob,url});$('pastePreview').append(img)}$('pasteStatus').textContent=pasted.length===1?'1 foto pegada, lista para guardar.':pasted.length+' fotos pegadas, listas para guardar.'}
+let draftPhotos = [];
+let pasteSession = 0;
+
+function clearDraftPhotos() {
+  pasteSession++;
+  for (const photo of draftPhotos) {
+    if (photo.blob) URL.revokeObjectURL(photo.url);
+  }
+  draftPhotos = [];
+  $('pastePreview').replaceChildren();
+  $('pasteStatus').textContent = '';
+}
+
+function renderDraftPhotos() {
+  const gallery = $('pastePreview');
+  gallery.replaceChildren();
+  if (!draftPhotos.length) {
+    gallery.textContent = 'Sin fotos.';
+    return;
+  }
+  for (const [index, photo] of draftPhotos.entries()) {
+    const item = document.createElement('div');
+    const img = document.createElement('img');
+    img.src = photo.url;
+    img.alt = 'Foto ' + (index + 1);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Quitar';
+    remove.setAttribute('aria-label', 'Quitar foto ' + (index + 1));
+    remove.onclick = () => {
+      draftPhotos.splice(index, 1);
+      if (photo.blob) URL.revokeObjectURL(photo.url);
+      renderDraftPhotos();
+      $('pasteStatus').textContent = 'Foto quitada. Guarda la baraja para aplicar el cambio.';
+      const buttons = gallery.querySelectorAll('button');
+      (buttons[Math.min(index, buttons.length - 1)] || $('pastePhotos')).focus();
+    };
+    item.append(img, remove);
+    gallery.append(item);
+  }
+}
+
+function addPasted(blobs) {
+  for (const blob of blobs) {
+    draftPhotos.push({blob, url: URL.createObjectURL(blob)});
+  }
+  renderDraftPhotos();
+  $('pasteStatus').textContent = blobs.length === 1 ? 'Foto añadida.' : 'Fotos añadidas.';
+}
+
+fields.files.onchange = () => {
+  if (fields.files.files.length) addPasted(Array.from(fields.files.files));
+  fields.files.value = '';
+};
+
 $('editor').addEventListener('paste',e=>{const files=Array.from(e.clipboardData?.files||[]).filter(f=>f.type.startsWith('image/'));if(files.length){e.preventDefault();addPasted(files)}});
 $('pastePhotos').onclick=async()=>{const session=pasteSession;try{if(!navigator.clipboard?.read)throw Error();const items=await navigator.clipboard.read(),blobs=[];for(const item of items){const type=item.types.find(t=>t.startsWith('image/'));if(type)blobs.push(await item.getType(type))}if(session!==pasteSession||!$('editor').open)return;if(blobs.length)addPasted(blobs);else $('pasteStatus').textContent='No hay imágenes en el portapapeles. Copia una foto primero.'}catch{if(session===pasteSession)$('pasteStatus').textContent='No se pudo leer el portapapeles. Prueba con Ctrl+V o ⌘V.'}};
-$('editor').addEventListener('close',clearPasted);
-function edit(d){clearPasted();editing=d;$('deleteDeck').hidden=!d;form.reset();$('linkRows').replaceChildren();for(const s of d?.sources?.length?d.sources:[null])appendLink(s);$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.currency.value=d?.currency||'EUR';fields.brand.value=d?.brand||known[0];brands();for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent=d?'Sustituir fotografías (opcional)':'Importar fotografías';$('editor').showModal()}
+$('editor').addEventListener('close',clearDraftPhotos);
+function edit(d){clearDraftPhotos();draftPhotos=(d?.photos||[]).map(url=>({url}));renderDraftPhotos();editing=d;$('deleteDeck').hidden=!d;form.reset();$('linkRows').replaceChildren();for(const s of d?.sources?.length?d.sources:[null])appendLink(s);$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.currency.value=d?.currency||'EUR';fields.brand.value=d?.brand||known[0];brands();for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent='Añadir fotografías';$('editor').showModal()}
 fields.brand.onchange=brands;$('add').onclick=()=>edit(null);$('edit').onclick=()=>{if(moving)return;$('detail').close();edit(active)};$('cancel').onclick=()=>$('editor').close();
 function readPhoto(f){return new Promise((resolve,reject)=>{let reader=new FileReader();reader.onerror=reject;reader.onload=()=>{let im=new Image();im.onerror=reject;im.onload=()=>{let scale=Math.min(1,1500/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*scale));c.height=Math.max(1,Math.round(im.height*scale));c.getContext('2d').drawImage(im,0,0,c.width,c.height);resolve(c.toDataURL('image/webp',.88))};im.src=reader.result};reader.readAsDataURL(f)})}
 // Read and modify within one transaction so another tab's changes survive.
@@ -246,5 +298,5 @@ $('confirmRemoval').onclick=async()=>{
     $('deleteError').textContent='No se ha podido eliminar la baraja. Vuelve a intentarlo.';
   }finally{button.disabled=false}
 };
-form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),sources:readLinks(),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:[...(fields.files.files.length?await Promise.all(Array.from(fields.files.files,readPhoto)):editing?.photos||[]),...await Promise.all(pasted.map(item=>readPhoto(item.blob)))]};await changeDeck(d,editing?'edit':'add');$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
+form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),sources:readLinks(),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:await Promise.all(draftPhotos.map(photo => photo.blob ? readPhoto(photo.blob) : photo.url))};await changeDeck(d,editing?'edit':'add');$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
 init().catch(()=>{decks=seeds();render();$('count').textContent+=' · almacenamiento desactivado'});
