@@ -16,7 +16,7 @@ type('P L A Y I N G   C A R D S',77,15);type(d.brand.toUpperCase(),153,65);
 rosette(209,303,121,9+d.style%5);g.fillStyle=bg;g.beginPath();g.ellipse(209,303,66,82,0,0,Math.PI*2);g.fill();g.stroke();g.fillStyle=ink;type(suit,339,111);
 type(d.name,477,32);type('F I N I S H   •   5 2   C A R D S',521,13)}
 g.fillStyle='#ffffff24';g.fillRect(7,8,4,571);const url=c.toDataURL();artCache.set(key,url);return url}
-function seeds(){return structuredClone(catalogoPublicado[section])}
+function seeds(key=section){return structuredClone(catalogoPublicado[key])}
 let decks=[],active,origin,index=0,editing,db,known=['Bicycle','Bee','Tally-Ho'];
 const exchangeRate = 1.1081; // ECB reference rate, 12 November 2026, USD per EUR.
 const formats = Object.fromEntries(['EUR','USD'].map(currency=>[currency,new Intl.NumberFormat('es-ES',{style:'currency',currency})]));
@@ -39,22 +39,33 @@ function searchable(value) {
 const opts=(el,items)=>el.replaceChildren(...items.map(([label,value])=>new Option(label,value)));
 function dbCall(mode,fn){return new Promise((resolve,reject)=>{const tx=db.transaction('data',mode),req=fn(tx.objectStore('data'));tx.oncomplete=()=>resolve(req.result);tx.onerror=tx.onabort=()=>reject(tx.error)})}
 async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgradeneeded=()=>req.result.createObjectStore('data');db=await new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)});await new Promise((resolve,reject)=>{
-  const tx=db.transaction('data','readwrite'),s=tx.objectStore('data');
-  const current=s.get(section),version=s.get(section+'-catalog-version');
-  version.onsuccess=()=>{
-    const saved=current.result;
-    if(version.result!=='capturas-2026-11-12'){
-      const old=(saved||[]).filter(d=>!d.id.startsWith('sample')||d.photos?.length||d.desc!=='Baraja de muestra con estuche ilustrado para probar la colección.');
-      const imported=seeds(),ids=new Set(imported.map(d=>d.id));decks=[...imported,...old.filter(d=>!ids.has(d.id))];
-      s.put(decks,section);s.put('capturas-2026-11-12',section+'-catalog-version');
-    }else decks=saved??seeds();
-  };
+  const tx=db.transaction('data','readwrite'),store=tx.objectStore('data');
+  for(const key of ['collection','wishlist']){
+    const current=store.get(key),version=store.get(key+'-catalog-version');
+    version.onsuccess=()=>{
+      let records=current.result??seeds(key);
+      if(version.result!=='capturas-2026-11-12'){
+        const custom=(current.result||[]).filter(d=>!d.id.startsWith('sample')||d.photos?.length||d.desc!=='Baraja de muestra con estuche ilustrado para probar la colección.');
+        const imported=seeds(key),ids=new Set(imported.map(d=>d.id));
+        records=[...imported,...custom.filter(d=>!ids.has(d.id))];
+        store.put(records,key);
+        store.put('capturas-2026-11-12',key+'-catalog-version');
+      }
+      if(key===section)decks=records;
+    };
+  }
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
 });known=[...new Set([...known,...decks.map(d=>d.brand),...(await dbCall('readonly',s=>s.get('brands'))||[])])];render()}
 function photo(d,i){return d.photos.length?d.photos[i]:art(d,!!i)}
 function render(){let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
 let list=decks.filter(d=>(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
-$('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);$('shelf').append(t)}if(!list.length)$('shelf').innerHTML='<p class="empty">Sin barajas para esta selección.</p>'}
+$('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);if(wish){
+  const wrapper=document.createElement('div');wrapper.className='wish-item';
+  const tick=document.createElement('button');tick.className='wish-tick';tick.type='button';tick.textContent='✓';
+  tick.title='Pasar '+d.name+' a Mi colección';tick.setAttribute('aria-label',tick.title);
+  tick.onclick=()=>transferDeck(d.id,tick);
+  wrapper.append(t,tick);$('shelf').append(wrapper);
+}else $('shelf').append(t)}if(!list.length)$('shelf').innerHTML='<p class="empty">Sin barajas para esta selección.</p>'}
 $('filter').onchange=$('sort').onchange=render;$('search').oninput=render;
 function gallery(){const n=active.photos.length||2;$('hero').src=photo(active,index);$('hero').alt=active.name+', imagen '+(index+1);$('page').textContent=(index+1)+' / '+n;$('prev').disabled=$('next').disabled=n<2}
 function shift(delta){if(moving)return;index=(index+delta+(active.photos.length||2))%(active.photos.length||2);gallery()}$('prev').onclick=()=>shift(-1);$('next').onclick=()=>shift(1);
@@ -132,6 +143,48 @@ async function changeDeck(deck, action) {
   });
   decks=updated;known=brands;
 }
+async function refreshShelf(){
+  if(!db)return;
+  const saved=await dbCall('readonly',store=>store.get(section));
+  if(saved){
+    decks=saved;known=[...new Set([...known,...saved.map(deck=>deck.brand)])];render();
+  }
+}
+const transfers=typeof BroadcastChannel==='function'?new BroadcastChannel('coleccion-movimientos'):null;
+if(transfers)transfers.onmessage=refreshShelf;
+window.addEventListener('pageshow',event=>{if(event.persisted)refreshShelf()});
+
+async function transferDeck(id,button){
+  button.disabled=true;
+  let pending,added;
+  try{
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction('data','readwrite'),store=tx.objectStore('data');
+      const source=store.get('wishlist'),destination=store.get('collection');
+      destination.onsuccess=()=>{
+        pending=source.result;
+        const original=pending.find(deck=>deck.id===id);
+        if(!original)return;
+        const collection=destination.result;
+        const num=collection.reduce((max,deck)=>Math.max(max,Number(deck.num)||0),0)+1;
+        added={...original,id:crypto.randomUUID(),num};
+        pending=pending.filter(deck=>deck.id!==id);
+        store.put([...collection,added],'collection');
+        store.put(pending,'wishlist');
+      };
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
+    });
+    if($('detail').open)$('detail').close();
+    decks=pending;render();
+    $('transferStatus').textContent=added?'✓ '+added.name+' se ha añadido a Mi colección con el n.º '+added.num+'.':'Esta ficha ya ha salido de la Wishlist.';
+    if(added)transfers?.postMessage('transfer');
+  }catch{
+    $('transferStatus').textContent='No se ha podido guardar el cambio. Inténtalo de nuevo.';
+    if($('detail').open)$('detail').close();
+  }finally{button.disabled=false}
+}
+if(wish)$('collectDeck').onclick=()=>{if(!moving)transferDeck(active.id,$('collectDeck'))};
+
 const confirmation=$('confirmDelete');
 $('deleteDeck').onclick=()=>{
   if(!editing)return;
