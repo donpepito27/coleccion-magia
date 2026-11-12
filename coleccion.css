@@ -21,3 +21,6 @@
 @media(prefers-reduced-motion:reduce){#detail.entering .sheet,#detail.entering::before,#detail.leaving .sheet,#detail.leaving::before{animation-duration:.1s}}
 
 #confirmDelete{max-width:min(440px,94vw)}.actions{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap}#deleteDeck{margin-right:auto;color:#ff9b8e}[hidden]{display:none!important}
+#sources{display:grid;gap:8px;margin-top:14px}#sources a{color:#ff9b8e;text-decoration:underline;text-underline-offset:3px;font-size:14px}.sheet article{min-width:0}.pack{max-height:78%}
+
+.toolbar{flex-wrap:wrap}.totals{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px}.totals strong{font-weight:500;font-size:14px}.rate{text-align:right;font:11px/1.6 Consolas,monospace;color:#aaa49b;margin:8px 0 0}.rate a{text-decoration:underline}.search-label input{margin-left:5px;width:165px;font-size:13px}.caption{flex-wrap:wrap}.price{white-space:normal}@media(max-width:680px){.search-label{width:100%}.search-label input{margin:0;width:100%}.toolbar .group{width:100%}.rate{text-align:left}}

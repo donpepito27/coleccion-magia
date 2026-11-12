@@ -16,14 +16,46 @@ type('P L A Y I N G   C A R D S',77,15);type(d.brand.toUpperCase(),153,65);
 rosette(209,303,121,9+d.style%5);g.fillStyle=bg;g.beginPath();g.ellipse(209,303,66,82,0,0,Math.PI*2);g.fill();g.stroke();g.fillStyle=ink;type(suit,339,111);
 type(d.name,477,32);type('F I N I S H   •   5 2   C A R D S',521,13)}
 g.fillStyle='#ffffff24';g.fillRect(7,8,4,571);const url=c.toDataURL();artCache.set(key,url);return url}
-const rows=[['Rider Back','Bicycle',6.5,2],['Diamond Back','Bee',8,1],['Circle Back','Tally-Ho',9.5,3],['Black Tiger','Bicycle',14,1],['Forest Green','Bicycle',8.5,2],['Fan Back','Tally-Ho',10,1]];
-function seeds(){return (wish?[rows[3],rows[5]]:rows).map(([name,brand,price,qty],i)=>({id:'sample'+i,name,brand,price,qty:wish?1:qty,num:i+1,date:wish?'':'2025-'+String(i+1).padStart(2,'0')+'-12',desc:'Baraja de muestra con estuche ilustrado para probar la colección.',style:wish?i+3:i,photos:[]}))}
-let decks=[],active,origin,index=0,editing,db,known=['Bicycle','Bee','Tally-Ho'];const eur=n=>n.toLocaleString('es-ES',{style:'currency',currency:'EUR'}),opts=(el,items)=>el.replaceChildren(...items.map(([label,value])=>new Option(label,value)));
+function seeds(){return structuredClone(catalogoPublicado[section])}
+let decks=[],active,origin,index=0,editing,db,known=['Bicycle','Bee','Tally-Ho'];
+const exchangeRate = 1.1081; // ECB reference rate, 12 November 2026, USD per EUR.
+const formats = Object.fromEntries(['EUR','USD'].map(currency=>[currency,new Intl.NumberFormat('es-ES',{style:'currency',currency})]));
+function centsIn(price, original='EUR', target='EUR') {
+  const cents=Math.round(price*100);
+  if(original===target)return cents;
+  return Math.round(target==='EUR'?cents/exchangeRate:cents*exchangeRate);
+}
+function dualPrice(price,currency) {
+  return formats.EUR.format(centsIn(price,currency,'EUR')/100)+' · '+formats.USD.format(centsIn(price,currency,'USD')/100);
+}
+function totalPrice(items) {
+  const euros=items.reduce((sum,d)=>sum+centsIn(d.price,d.currency,'EUR')*d.qty,0);
+  const dollars=items.reduce((sum,d)=>sum+centsIn(d.price,d.currency,'USD')*d.qty,0);
+  return formats.EUR.format(euros/100)+' · '+formats.USD.format(dollars/100);
+}
+function searchable(value) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('es').trim();
+}
+const opts=(el,items)=>el.replaceChildren(...items.map(([label,value])=>new Option(label,value)));
 function dbCall(mode,fn){return new Promise((resolve,reject)=>{const tx=db.transaction('data',mode),req=fn(tx.objectStore('data'));tx.oncomplete=()=>resolve(req.result);tx.onerror=tx.onabort=()=>reject(tx.error)})}
-async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgradeneeded=()=>req.result.createObjectStore('data');db=await new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)});decks=await dbCall('readonly',s=>s.get(section))||seeds();known=[...new Set([...known,...decks.map(d=>d.brand),...(await dbCall('readonly',s=>s.get('brands'))||[])])];render()}
+async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgradeneeded=()=>req.result.createObjectStore('data');db=await new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)});await new Promise((resolve,reject)=>{
+  const tx=db.transaction('data','readwrite'),s=tx.objectStore('data');
+  const current=s.get(section),version=s.get(section+'-catalog-version');
+  version.onsuccess=()=>{
+    const saved=current.result;
+    if(version.result!=='capturas-2026-11-12'){
+      const old=(saved||[]).filter(d=>!d.id.startsWith('sample')||d.photos?.length||d.desc!=='Baraja de muestra con estuche ilustrado para probar la colección.');
+      const imported=seeds(),ids=new Set(imported.map(d=>d.id));decks=[...imported,...old.filter(d=>!ids.has(d.id))];
+      s.put(decks,section);s.put('capturas-2026-11-12',section+'-catalog-version');
+    }else decks=saved??seeds();
+  };
+  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
+});known=[...new Set([...known,...decks.map(d=>d.brand),...(await dbCall('readonly',s=>s.get('brands'))||[])])];render()}
 function photo(d,i){return d.photos.length?d.photos[i]:art(d,!!i)}
-function render(){let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';let list=decks.filter(d=>!$('filter').value||d.brand===$('filter').value);let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=list.length+' '+(list.length===1?'baraja':'barajas');$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=eur(d.price);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);$('shelf').append(t)}if(!list.length)$('shelf').innerHTML='<p class="empty">Sin barajas para esta selección.</p>'}
-$('filter').onchange=$('sort').onchange=render;
+function render(){let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
+let list=decks.filter(d=>(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
+$('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);$('shelf').append(t)}if(!list.length)$('shelf').innerHTML='<p class="empty">Sin barajas para esta selección.</p>'}
+$('filter').onchange=$('sort').onchange=render;$('search').oninput=render;
 function gallery(){const n=active.photos.length||2;$('hero').src=photo(active,index);$('hero').alt=active.name+', imagen '+(index+1);$('page').textContent=(index+1)+' / '+n;$('prev').disabled=$('next').disabled=n<2}
 function shift(delta){if(moving)return;index=(index+delta+(active.photos.length||2))%(active.photos.length||2);gallery()}$('prev').onclick=()=>shift(-1);$('next').onclick=()=>shift(1);
 function fit(el){const r=el.getBoundingClientRect(),ratio=el.naturalWidth/el.naturalHeight||432/590,w=Math.min(r.width,r.height*ratio),h=w/ratio;return {x:r.x+(r.width-w)/2,y:r.y+(r.height-h)/2,w,h}}
@@ -58,7 +90,14 @@ async function fly(reverse){
     if(!reverse)dialog.className='';
   }
 }
-let moving=false;async function openDeck(d,t){active=d;origin=t;index=0;$('name').textContent=d.name;$('maker').textContent=d.brand.toUpperCase();$('desc').textContent=d.desc;$('ref').textContent='N.º '+String(d.num).padStart(3,'0');$('facts').replaceChildren();for(const [k,v] of [['Precio',eur(d.price)],['Fecha de compra',d.date?new Date(d.date+'T12:00').toLocaleDateString('es-ES'):'Pendiente'],['Ejemplares',d.qty]]){const row=document.createElement('div');row.innerHTML='<dt></dt><dd></dd>';row.firstChild.textContent=k;row.lastChild.textContent=v;$('facts').append(row)}gallery();$('detail').className='preparing';$('detail').showModal();moving=true;try{await $('hero').decode().catch(()=>{});await fly(false)}finally{moving=false}}
+let moving=false;async function openDeck(d,t){active=d;origin=t;index=0;$('name').textContent=d.name;$('maker').textContent=d.brand.toUpperCase();$('desc').textContent=d.desc||'';
+const sources=$('sources');sources.replaceChildren();
+for(const source of d.sources||[]){
+  if(!/^https?:\/\//.test(source.url))continue;
+  const link=document.createElement('a');link.href=source.url;link.target='_blank';link.rel='noopener noreferrer';
+  link.textContent=(source.lookup?'Buscar en ':'Ver en ')+source.shop+(source.price!==undefined?' · '+dualPrice(source.price,d.currency):'');
+  sources.append(link);
+}$('ref').textContent='N.º '+String(d.num).padStart(3,'0');$('facts').replaceChildren();for(const [k,v] of [['Precio',dualPrice(d.price,d.currency)],['Fecha de compra',d.date?new Date(d.date+'T12:00').toLocaleDateString('es-ES'):(wish?'Pendiente':'Sin fecha indicada')],['Ejemplares',d.qty]]){const row=document.createElement('div');row.innerHTML='<dt></dt><dd></dd>';row.firstChild.textContent=k;row.lastChild.textContent=v;$('facts').append(row)}gallery();$('detail').className='preparing';$('detail').showModal();moving=true;try{await $('hero').decode().catch(()=>{});await fly(false)}finally{moving=false}}
 async function closeDeck(){if(moving)return;moving=true;index=0;gallery();await $('hero').decode().catch(()=>{});try{await fly(true)}finally{$('detail').close();$('detail').className='';moving=false}} $('back').onclick=closeDeck;$('detail').oncancel=e=>{e.preventDefault();closeDeck()};
 $('replay').onclick=async()=>{
   if(moving)return;
@@ -68,7 +107,7 @@ $('replay').onclick=async()=>{
 };
 const form=$('form'),fields=form.elements;
 function brands(){let fresh=fields.brand.value==='+';$('newlabel').hidden=!fresh;fields.custom.required=fresh}
-function edit(d){editing=d;$('deleteDeck').hidden=!d;form.reset();$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.brand.value=d?.brand||known[0];brands();for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent=d?'Sustituir fotografías (opcional)':'Importar fotografías';$('editor').showModal()}
+function edit(d){editing=d;$('deleteDeck').hidden=!d;form.reset();$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.currency.value=d?.currency||'EUR';fields.brand.value=d?.brand||known[0];brands();for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent=d?'Sustituir fotografías (opcional)':'Importar fotografías';$('editor').showModal()}
 fields.brand.onchange=brands;$('add').onclick=()=>edit(null);$('edit').onclick=()=>{if(moving)return;$('detail').close();edit(active)};$('cancel').onclick=()=>$('editor').close();
 function readPhoto(f){return new Promise((resolve,reject)=>{let reader=new FileReader();reader.onerror=reject;reader.onload=()=>{let im=new Image();im.onerror=reject;im.onload=()=>{let scale=Math.min(1,1500/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*scale));c.height=Math.max(1,Math.round(im.height*scale));c.getContext('2d').drawImage(im,0,0,c.width,c.height);resolve(c.toDataURL('image/webp',.88))};im.src=reader.result};reader.readAsDataURL(f)})}
 // Read and modify within one transaction so another tab's changes survive.
@@ -116,5 +155,5 @@ $('confirmRemoval').onclick=async()=>{
     $('deleteError').textContent='No se ha podido eliminar la baraja. Vuelve a intentarlo.';
   }finally{button.disabled=false}
 };
-form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:fields.files.files.length?await Promise.all(Array.from(fields.files.files,readPhoto)):editing?.photos||[]};await changeDeck(d,editing?'edit':'add');$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
+form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:fields.files.files.length?await Promise.all(Array.from(fields.files.files,readPhoto)):editing?.photos||[]};await changeDeck(d,editing?'edit':'add');$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
 init().catch(()=>{decks=seeds();render();$('count').textContent+=' · almacenamiento desactivado'});
