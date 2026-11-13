@@ -47,3 +47,12 @@
   height: 112px;
   object-fit: contain;
 }
+
+.brand-field { display:grid; align-content:start; gap:6px; min-width:0 }
+.brand-field select[hidden] { display:none }
+#brandPicker summary { cursor:pointer; border:1px solid #565656; border-radius:6px; padding:9px; overflow-wrap:anywhere }
+#brandChoices { max-height:14rem; overflow:auto; padding:4px }
+#brandChoices > div { display:flex; align-items:center }
+#brandChoices button:first-child { flex:1; text-align:left; overflow-wrap:anywhere }
+#brandChoices button { background:transparent; border:0; padding:7px; color:inherit }
+#brandChoices button:hover { background:#482027 }

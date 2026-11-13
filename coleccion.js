@@ -57,7 +57,7 @@ async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgra
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
 });known=[...new Set([...known,...decks.map(d=>d.brand),...(await dbCall('readonly',s=>s.get('brands'))||[])])];render()}
 function photo(d,i){return d.photos.length?d.photos[i]:art(d,!!i)}
-function render(){let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
+function render(){known.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
 let list=decks.filter(d=>(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
 $('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);
   const wrapper=document.createElement('div');wrapper.className='wish-item';
@@ -117,6 +117,51 @@ $('replay').onclick=async()=>{
   finally{moving=false}
 };
 const form=$('form'),fields=form.elements;
+const hiddenBrandKey = 'coleccion-marcas-ocultas';
+function hiddenBrands() {
+  return new Set(JSON.parse(localStorage.getItem(hiddenBrandKey) || '[]'));
+}
+function chooseBrand(value) {
+  fields.brand.value = value;
+  brands();
+  const picker = $('brandPicker');
+  picker.querySelector('summary').textContent = value === '+' ? 'Nueva marca' : value;
+  picker.open = false;
+}
+function drawBrandChoices() {
+  const choices = $('brandChoices');
+  const hidden = hiddenBrands();
+  choices.replaceChildren();
+  for (const brand of known.filter(name => !hidden.has(name))) {
+    const row = document.createElement('div');
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.textContent = brand;
+    select.onclick = () => chooseBrand(brand);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', 'Quitar ' + brand + ' del selector');
+    remove.onclick = () => {
+      const excluded = hiddenBrands();
+      excluded.add(brand);
+      localStorage.setItem(hiddenBrandKey, JSON.stringify([...excluded]));
+      if (!editing && fields.brand.value === brand) {
+        chooseBrand(known.find(name => !excluded.has(name)) || '+');
+        $('brandPicker').open = true;
+      }
+      drawBrandChoices();
+      choices.querySelector('button').focus();
+    };
+    row.append(select, remove);
+    choices.append(row);
+  }
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.textContent = '＋ Nueva marca';
+  add.onclick = () => { chooseBrand('+'); fields.custom.focus(); };
+  choices.append(add);
+}
 function brands(){let fresh=fields.brand.value==='+';$('newlabel').hidden=!fresh;fields.custom.required=fresh}
 function sourceLabel(source,currency){
   if(source.label)return source.label;
@@ -203,7 +248,7 @@ fields.files.onchange = () => {
 $('editor').addEventListener('paste',e=>{const files=Array.from(e.clipboardData?.files||[]).filter(f=>f.type.startsWith('image/'));if(files.length){e.preventDefault();addPasted(files)}});
 $('pastePhotos').onclick=async()=>{const session=pasteSession;try{if(!navigator.clipboard?.read)throw Error();const items=await navigator.clipboard.read(),blobs=[];for(const item of items){const type=item.types.find(t=>t.startsWith('image/'));if(type)blobs.push(await item.getType(type))}if(session!==pasteSession||!$('editor').open)return;if(blobs.length)addPasted(blobs);else $('pasteStatus').textContent='No hay imágenes en el portapapeles. Copia una foto primero.'}catch{if(session===pasteSession)$('pasteStatus').textContent='No se pudo leer el portapapeles. Prueba con Ctrl+V o ⌘V.'}};
 $('editor').addEventListener('close',clearDraftPhotos);
-function edit(d){clearDraftPhotos();draftPhotos=(d?.photos||[]).map(url=>({url}));renderDraftPhotos();editing=d;$('deleteDeck').hidden=!d;form.reset();$('linkRows').replaceChildren();for(const s of d?.sources?.length?d.sources:[null])appendLink(s);$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.currency.value=d?.currency||'EUR';fields.brand.value=d?.brand||known[0];brands();for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent='Añadir fotografías';$('editor').showModal()}
+function edit(d){clearDraftPhotos();draftPhotos=(d?.photos||[]).map(url=>({url}));renderDraftPhotos();editing=d;$('deleteDeck').hidden=!d;form.reset();$('linkRows').replaceChildren();for(const s of d?.sources?.length?d.sources:[null])appendLink(s);$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.currency.value=d?.currency||'EUR';drawBrandChoices();chooseBrand(d?.brand||known.find(name=>!hiddenBrands().has(name))||'+');for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent='Añadir fotografías';$('editor').showModal()}
 fields.brand.onchange=brands;$('add').onclick=()=>edit(null);$('edit').onclick=()=>{if(moving)return;$('detail').close();edit(active)};$('cancel').onclick=()=>$('editor').close();
 function readPhoto(f){return new Promise((resolve,reject)=>{let reader=new FileReader();reader.onerror=reject;reader.onload=()=>{let im=new Image();im.onerror=reject;im.onload=()=>{let scale=Math.min(1,1500/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*scale));c.height=Math.max(1,Math.round(im.height*scale));c.getContext('2d').drawImage(im,0,0,c.width,c.height);resolve(c.toDataURL('image/webp',.88))};im.src=reader.result};reader.readAsDataURL(f)})}
 // Read and modify within one transaction so another tab's changes survive.
@@ -218,7 +263,13 @@ async function changeDeck(deck, action) {
       if(action==='edit' && !exists){missing=true;tx.abort();return}
       if(action==='delete')updated=records.filter(item=>item.id!==deck.id);
       else if(action==='edit')updated=records.map(item=>item.id===deck.id?deck:item);
-      else updated=[...records,deck];
+      else {
+        const occupied = records.some(item => Number(item.num) === deck.num);
+        updated = records.map(item => occupied && Number(item.num) >= deck.num
+          ? {...item, num: Number(item.num) + 1}
+          : item);
+        updated.push(deck);
+      }
       brands=[...new Set([...known,...(brandList.result||[]),deck.brand])];
       store.put(updated,section);
       store.put(brands,'brands');
@@ -298,5 +349,10 @@ $('confirmRemoval').onclick=async()=>{
     $('deleteError').textContent='No se ha podido eliminar la baraja. Vuelve a intentarlo.';
   }finally{button.disabled=false}
 };
-form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),sources:readLinks(),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:await Promise.all(draftPhotos.map(photo => photo.blob ? readPhoto(photo.blob) : photo.url))};await changeDeck(d,editing?'edit':'add');$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
+form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),sources:readLinks(),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:await Promise.all(draftPhotos.map(photo => photo.blob ? readPhoto(photo.blob) : photo.url))};await changeDeck(d,editing?'edit':'add');
+if(fields.brand.value === '+'){
+  const excluded = hiddenBrands();
+  if(excluded.delete(brand))localStorage.setItem(hiddenBrandKey,JSON.stringify([...excluded]));
+}
+transfers?.postMessage(section);$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
 init().catch(()=>{decks=seeds();render();$('count').textContent+=' · almacenamiento desactivado'});
