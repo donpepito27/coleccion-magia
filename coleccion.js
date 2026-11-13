@@ -44,12 +44,21 @@ async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgra
     const current=store.get(key),version=store.get(key+'-catalog-version');
     version.onsuccess=()=>{
       let records=current.result??seeds(key);
-      if(version.result!=='capturas-2026-11-12'){
+      if(!['capturas-2026-11-12','theory11-1'].includes(version.result)){
         const custom=(current.result||[]).filter(d=>!d.id.startsWith('sample')||d.photos?.length||d.desc!=='Baraja de muestra con estuche ilustrado para probar la colección.');
         const imported=seeds(key),ids=new Set(imported.map(d=>d.id));
         records=[...imported,...custom.filter(d=>!ids.has(d.id))];
         store.put(records,key);
         store.put('capturas-2026-11-12',key+'-catalog-version');
+      }
+      if (key === 'wishlist' && version.result !== 'theory11-1') {
+        const ids = new Set(records.map(deck => deck.id));
+        let lastNumber = records.reduce((max, deck) => Math.max(max, Number(deck.num) || 0), 0);
+        const additions = theory11Wishlist.filter(deck => !ids.has(deck.id))
+          .map(deck => ({...deck, num: ++lastNumber}));
+        records = [...records, ...additions];
+        store.put(records, key);
+        store.put('theory11-1', key + '-catalog-version');
       }
       if(key===section)decks=records;
     };
