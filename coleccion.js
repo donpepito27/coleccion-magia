@@ -309,10 +309,19 @@ async function refreshShelf(){
   if(publishing)return;
   isOwner=state.owner;sharedRevision=state.revision;showCatalog(state.catalog||initialCatalog());
 }
+function numberInOrder(records){
+  records.forEach((deck,index)=>{deck.num=index+1});
+}
+function closeGaps(records){
+  records.sort((a,b)=>Number(a.num)-Number(b.num));
+  numberInOrder(records);
+}
 async function publish(next){
   if(!isOwner||publishing)throw Error('Espera a que termine el guardado o vuelve a acceder.');
   publishing=true;
   try{
+    closeGaps(next.collection);
+    closeGaps(next.wishlist);
     const uploaded=new Map();
     for(const deck of [...next.collection,...next.wishlist]){
       for(const [i,photo] of deck.photos.entries()){
@@ -329,17 +338,14 @@ async function changeDeck(deck,action){
   const next=structuredClone(sharedCatalog), records=next[section];
   const pos=records.findIndex(d=>d.id===deck.id);
   if(action!=='add' && pos<0)throw Error('Esta baraja ya no está en la lista.');
-  if(action==='delete'){
-    records.splice(pos,1);
-  }else{
-    const target=Number(deck.num);
-    if(action==='add' || Number(records[pos].num)!==target){
-      for(const other of records){
-        if(other.id!==deck.id && Number(other.num)>=target)other.num=Number(other.num)+1;
-      }
+  if(action==='edit' && Number(records[pos].num)===Number(deck.num))records[pos]=deck;
+  else {
+    if(pos>=0)records.splice(pos,1);
+    closeGaps(records);
+    if(action!=='delete'){
+      records.splice(Math.max(0,Number(deck.num)-1),0,deck);
+      numberInOrder(records);
     }
-    if(action==='edit')records[pos]=deck;
-    else records.push(deck);
   }
   if(action!=='delete' && fields.brand.value==='+')next.hiddenBrands=next.hiddenBrands.filter(b=>b!==deck.brand);
   await publish(next);
