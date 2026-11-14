@@ -59,3 +59,12 @@
 
 body:not(.owner) :is(#add,#edit,#collectDeck,.wish-tick,#importLocal){display:none!important}
 #login{padding:24px}#login input{display:block;margin:8px 0}#access{margin-left:8px}
+
+.brand-filter {display:flex;gap:6px;align-items:center;font-size:12px;color:#ccc5bb}
+#filterPicker {position:relative}
+#filterPicker summary {cursor:pointer;padding:7px 10px;border:1px solid #565656;border-radius:6px;color:inherit}
+#filterChoices {position:absolute;z-index:5;top:100%;left:0;min-width:12rem;max-width:80vw;max-height:18rem;overflow:auto;background:#201e1d;border:1px solid #565656;border-radius:6px;padding:4px}
+#filterChoices div {display:flex}
+#filterChoices button {background:transparent;border:0;color:inherit;padding:8px}
+#filterChoices button:first-child {flex:1;text-align:left}
+#filterChoices button:hover,#filterChoices button[aria-pressed=true] {background:#482027}

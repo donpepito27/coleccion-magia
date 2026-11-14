@@ -110,16 +110,73 @@ function filterShops() {
   select.value = names.includes(previous) ? previous : '';
   return deck => !select.value || byDeck.get(deck).includes(select.value);
 }
-function render(){const matchesShop=filterShops();known.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
-let list=decks.filter(d=>matchesShop(d)&&(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
-$('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);
+let selectedBrand = '';
+function hideBrand(brand) {
+  const excluded = hiddenBrands();
+  excluded.add(brand);
+  return publish({...structuredClone(sharedCatalog),hiddenBrands:[...excluded]});
+}
+function renderBrandFilter() {
+  const visible = known.filter(name => !hiddenBrands().has(name));
+  if (!visible.includes(selectedBrand)) selectedBrand = '';
+  $('filterCaption').textContent = selectedBrand || 'Todas las marcas';
+  const choices = $('filterChoices');
+  choices.replaceChildren();
+  for (const brand of ['', ...visible]) {
+    const row = document.createElement('div');
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.textContent = brand || 'Todas las marcas';
+    select.setAttribute('aria-pressed', String(selectedBrand === brand));
+    select.onclick = () => {
+      selectedBrand = brand;
+      $('filterPicker').open = false;
+      render();
+      $('filterPicker').querySelector('summary').focus();
+    };
+    row.append(select);
+    if (isOwner && brand) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.title = 'Quitar ' + brand + ' de los selectores';
+      remove.setAttribute('aria-label',remove.title);
+      remove.onclick = async () => {
+        remove.disabled = true;
+        try {
+          await hideBrand(brand);
+          $('filterPicker').querySelector('summary').focus();
+        } catch (err) {
+          $('transferStatus').textContent = err.message;
+          remove.disabled = false;
+        }
+      };
+      row.append(remove);
+    }
+    choices.append(row);
+  }
+}
+document.addEventListener('click', event => {
+  if (!$('filterPicker').contains(event.target)) $('filterPicker').open = false;
+});
+$('filterPicker').onkeydown = event => {
+  if (event.key === 'Escape') {
+    $('filterPicker').open = false;
+    $('filterPicker').querySelector('summary').focus();
+  }
+};
+function render(){const matchesShop=filterShops();known.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));renderBrandFilter();const query=searchable($('search').value);
+let list=decks.filter(d=>matchesShop(d)&&(!selectedBrand||d.brand===selectedBrand)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
+$('total').textContent='Total '+totalPrice(decks);
+const subtotal=$('filteredTotal');subtotal.hidden=!(selectedBrand||$('shopFilter').value||query);subtotal.textContent=subtotal.hidden?'':'Total filtrado '+totalPrice(list);
+$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);
   const wrapper=document.createElement('div');wrapper.className='wish-item';
   const tick=document.createElement('button');tick.className='wish-tick';tick.type='button';tick.textContent=wish?'✓':'♡';
   tick.title=wish?'Pasar '+d.name+' a Mi colección':'Copiar '+d.name+' a Wishlist';tick.setAttribute('aria-label',tick.title);
   tick.onclick=()=>transferDeck(d.id,tick);
   wrapper.append(t,tick);$('shelf').append(wrapper);
 }if(!list.length)$('shelf').innerHTML='<p class="empty">Sin barajas para esta selección.</p>'}
-$('shopFilter').onchange=$('filter').onchange=$('sort').onchange=render;$('search').oninput=render;
+$('shopFilter').onchange=$('sort').onchange=render;$('search').oninput=render;
 function gallery(){const n=active.photos.length||2;$('hero').src=photo(active,index);$('hero').alt=active.name+', imagen '+(index+1);$('page').textContent=(index+1)+' / '+n;$('prev').disabled=$('next').disabled=n<2}
 function shift(delta){if(moving)return;index=(index+delta+(active.photos.length||2))%(active.photos.length||2);gallery()}$('prev').onclick=()=>shift(-1);$('next').onclick=()=>shift(1);
 function fit(el){const r=el.getBoundingClientRect(),ratio=el.naturalWidth/el.naturalHeight||432/590,w=Math.min(r.width,r.height*ratio),h=w/ratio;return {x:r.x+(r.width-w)/2,y:r.y+(r.height-h)/2,w,h}}
@@ -198,7 +255,7 @@ function drawBrandChoices() {
     remove.onclick = async () => {
       const excluded = hiddenBrands();
       excluded.add(brand);
-      try{await publish({...structuredClone(sharedCatalog),hiddenBrands:[...excluded]})}catch(err){$('error').textContent=err.message;return}
+      try{await hideBrand(brand)}catch(err){$('error').textContent=err.message;return}
       if (!editing && fields.brand.value === brand) {
         chooseBrand(known.find(name => !excluded.has(name)) || '+');
         $('brandPicker').open = true;
@@ -440,5 +497,5 @@ $('confirmRemoval').onclick=async()=>{
   }finally{button.disabled=false}
 };
 form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),sources:readLinks(),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:await Promise.all(draftPhotos.map(photo => photo.blob ? readPhoto(photo.blob) : photo.url))};await changeDeck(d,editing?'edit':'add');
-$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
+selectedBrand='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
 refreshShelf().catch(err=>{showCatalog(initialCatalog());$('transferStatus').textContent=err.message});
