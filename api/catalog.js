@@ -1,6 +1,8 @@
 const { createHmac, randomBytes, timingSafeEqual, createHash } = require('node:crypto');
 const { get, put } = require('@vercel/blob');
 const path = 'catalogo/publicado.json';
+// Blob reads can return a weak HTTP ETag for the same stored object.
+const storageRevision = etag => (etag || '').replace(/^W\//, '');
 const cookie = '__Host-propietario';
 const failures = new Map();
 const digest = value => createHash('sha256').update(value).digest();
@@ -20,7 +22,7 @@ module.exports = async (req,res) => {
     if(req.method==='GET'){
       const record = await get(path,{access:'public',useCache:false});
       const catalog = record ? await new Response(record.stream).json() : null;
-      return res.json({owner,revision:record?.blob.etag || '',catalog});
+      return res.json({owner,revision:storageRevision(record?.blob.etag),catalog});
     }
     if(req.method!=='POST')return res.status(405).end();
     if(req.headers.origin !== 'https://'+req.headers.host || !req.headers['content-type']?.startsWith('application/json'))return res.status(403).end();
@@ -49,8 +51,8 @@ module.exports = async (req,res) => {
     }
     const c=body.catalog;
     if(body.action!=='publish'||typeof body.revision!=='string'||!Array.isArray(c?.collection)||!Array.isArray(c?.wishlist)||!Array.isArray(c?.hiddenBrands))return res.status(400).end();
-    const blob=await put(path,JSON.stringify(c),{access:'public',contentType:'application/json',addRandomSuffix:false,allowOverwrite:!!body.revision,...(body.revision?{ifMatch:body.revision}:{})});
-    return res.json({revision:blob.etag});
+    const blob=await put(path,JSON.stringify(c),{access:'public',contentType:'application/json',addRandomSuffix:false,allowOverwrite:!!body.revision,...(body.revision?{ifMatch:storageRevision(body.revision)}:{})});
+    return res.json({revision:storageRevision(blob.etag)});
   }catch(err){
     if(/precondition|already exists|etag/i.test(String(err)))return res.status(409).json({error:'El catálogo cambió en otro dispositivo. Recarga la página antes de guardar.'});
     return res.status(503).json({error:'No se pudo acceder al catálogo compartido. Inténtalo de nuevo.'});
