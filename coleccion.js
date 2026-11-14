@@ -38,7 +38,7 @@ function searchable(value) {
 }
 const opts=(el,items)=>el.replaceChildren(...items.map(([label,value])=>new Option(label,value)));
 function dbCall(mode,fn){return new Promise((resolve,reject)=>{const tx=db.transaction('data',mode),req=fn(tx.objectStore('data'));tx.oncomplete=()=>resolve(req.result);tx.onerror=tx.onabort=()=>reject(tx.error)})}
-async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgradeneeded=()=>req.result.createObjectStore('data');db=await new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)});await new Promise((resolve,reject)=>{
+async function initLocal(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgradeneeded=()=>req.result.createObjectStore('data');db=await new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)});await new Promise((resolve,reject)=>{
   const tx=db.transaction('data','readwrite'),store=tx.objectStore('data');
   for(const key of ['collection','wishlist']){
     const galleryVersion = store.get(key + '-gallery-version');
@@ -76,11 +76,11 @@ async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgra
         store.put(records, key);
         store.put(1, key + '-gallery-version');
       }
-      if(key===section)decks=records;
+
     };
   }
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
-});known=[...new Set([...known,...decks.map(d=>d.brand),...(await dbCall('readonly',s=>s.get('brands'))||[])])];render()}
+});}
 function photo(d,i){return d.photos.length?d.photos[i]:art(d,!!i)}
 function render(){known.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
 let list=decks.filter(d=>(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
@@ -144,7 +144,7 @@ $('replay').onclick=async()=>{
 const form=$('form'),fields=form.elements;
 const hiddenBrandKey = 'coleccion-marcas-ocultas';
 function hiddenBrands() {
-  return new Set(JSON.parse(localStorage.getItem(hiddenBrandKey) || '[]'));
+  return new Set(sharedCatalog.hiddenBrands);
 }
 function chooseBrand(value) {
   fields.brand.value = value;
@@ -167,10 +167,10 @@ function drawBrandChoices() {
     remove.type = 'button';
     remove.textContent = '×';
     remove.setAttribute('aria-label', 'Quitar ' + brand + ' del selector');
-    remove.onclick = () => {
+    remove.onclick = async () => {
       const excluded = hiddenBrands();
       excluded.add(brand);
-      localStorage.setItem(hiddenBrandKey, JSON.stringify([...excluded]));
+      try{await publish({...structuredClone(sharedCatalog),hiddenBrands:[...excluded]})}catch(err){$('error').textContent=err.message;return}
       if (!editing && fields.brand.value === brand) {
         chooseBrand(known.find(name => !excluded.has(name)) || '+');
         $('brandPicker').open = true;
@@ -276,79 +276,103 @@ $('editor').addEventListener('close',clearDraftPhotos);
 function edit(d){clearDraftPhotos();draftPhotos=(d?.photos||[]).map(url=>({url}));renderDraftPhotos();editing=d;$('deleteDeck').hidden=!d;form.reset();$('linkRows').replaceChildren();for(const s of d?.sources?.length?d.sources:[null])appendLink(s);$('error').textContent='';$('formtitle').textContent=d?'Editar baraja':'Añadir baraja';opts(fields.brand,[...known.map(b=>[b,b]),['＋ Nueva marca','+']]);fields.currency.value=d?.currency||'EUR';drawBrandChoices();chooseBrand(d?.brand||known.find(name=>!hiddenBrands().has(name))||'+');for(const k of ['name','desc','price','date','qty','num'])fields[k].value=d?.[k]??({qty:1,num:1+decks.reduce((m,v)=>Math.max(m,v.num),0)}[k]??'');$('photosLabel').firstChild.textContent='Añadir fotografías';$('editor').showModal()}
 fields.brand.onchange=brands;$('add').onclick=()=>edit(null);$('edit').onclick=()=>{if(moving)return;$('detail').close();edit(active)};$('cancel').onclick=()=>$('editor').close();
 function readPhoto(f){return new Promise((resolve,reject)=>{let reader=new FileReader();reader.onerror=reject;reader.onload=()=>{let im=new Image();im.onerror=reject;im.onload=()=>{let scale=Math.min(1,1500/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*scale));c.height=Math.max(1,Math.round(im.height*scale));c.getContext('2d').drawImage(im,0,0,c.width,c.height);resolve(c.toDataURL('image/webp',.88))};im.src=reader.result};reader.readAsDataURL(f)})}
-// Read and modify within one transaction so another tab's changes survive.
-async function changeDeck(deck, action) {
-  let updated, brands, missing=false;
-  await new Promise((resolve,reject)=>{
-    const tx=db.transaction('data','readwrite'), store=tx.objectStore('data');
-    const current=store.get(section), brandList=store.get('brands');
-    brandList.onsuccess=()=>{
-      const records=current.result ?? seeds();
-      const exists=records.some(item=>item.id===deck.id);
-      if(action==='edit' && !exists){missing=true;tx.abort();return}
-      if(action==='delete')updated=records.filter(item=>item.id!==deck.id);
-      else if(action==='edit')updated=records.map(item=>item.id===deck.id?deck:item);
-      else {
-        const occupied = records.some(item => Number(item.num) === deck.num);
-        updated = records.map(item => occupied && Number(item.num) >= deck.num
-          ? {...item, num: Number(item.num) + 1}
-          : item);
-        updated.push(deck);
+let sharedCatalog, sharedRevision='', isOwner=false, publishing=false;
+function initialCatalog(){
+  const base=structuredClone(catalogoPublicado);
+  for(const key of ['collection','wishlist']){
+    for(const deck of base[key]){
+      const gallery=galeriasPublicadas[deck.id];
+      if(gallery && deck.photos.length===1 && gallery.previous===deck.photos[0]){
+        deck.photos=gallery.photos;
+        if(gallery.source && !deck.sources.some(s=>s.url===gallery.source.url))deck.sources.push(gallery.source);
       }
-      brands=[...new Set([...known,...(brandList.result||[]),deck.brand])];
-      store.put(updated,section);
-      store.put(brands,'brands');
-    };
-    tx.oncomplete=resolve;
-    tx.onabort=()=>reject(missing?new Error('Esta baraja ya se ha eliminado en otra pestaña.'):tx.error);
-  });
-  decks=updated;known=brands;
+    }
+  }
+  return {...base,hiddenBrands:[]};
+}
+async function api(body){
+  const response=await fetch('/api/catalog',body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'});
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw Error(result.error || 'No se ha podido completar la operación.');
+  return result;
+}
+function showCatalog(c){
+  sharedCatalog=c;decks=c[section];
+  known=[...new Set(['Bicycle','Bee','Tally-Ho',...c.collection.map(d=>d.brand),...c.wishlist.map(d=>d.brand)])];
+  document.body.classList.toggle('owner',isOwner);
+  $('access').textContent=isOwner?'Cerrar sesión':'Acceder';
+  render();
 }
 async function refreshShelf(){
-  if(!db)return;
-  const saved=await dbCall('readonly',store=>store.get(section));
-  if(saved){
-    decks=saved;known=[...new Set([...known,...saved.map(deck=>deck.brand)])];render();
-  }
+  if(publishing)return;
+  const state=await api();
+  if(publishing)return;
+  isOwner=state.owner;sharedRevision=state.revision;showCatalog(state.catalog||initialCatalog());
 }
-const transfers=typeof BroadcastChannel==='function'?new BroadcastChannel('coleccion-movimientos'):null;
-if(transfers)transfers.onmessage=refreshShelf;
-window.addEventListener('pageshow',event=>{if(event.persisted)refreshShelf()});
-
+async function publish(next){
+  if(!isOwner||publishing)throw Error('Espera a que termine el guardado o vuelve a acceder.');
+  publishing=true;
+  try{
+    const uploaded=new Map();
+    for(const deck of [...next.collection,...next.wishlist]){
+      for(const [i,photo] of deck.photos.entries()){
+        if(!photo.startsWith('data:image/'))continue;
+        if(!uploaded.has(photo))uploaded.set(photo,(await api({action:'photo',data:photo})).url);
+        deck.photos[i]=uploaded.get(photo);
+      }
+    }
+    const saved=await api({action:'publish',revision:sharedRevision,catalog:next});
+    sharedRevision=saved.revision;showCatalog(next);
+  }finally{publishing=false}
+}
+async function changeDeck(deck,action){
+  const next=structuredClone(sharedCatalog), records=next[section];
+  const pos=records.findIndex(d=>d.id===deck.id);
+  if(action==='delete')records.splice(pos,1);
+  else if(action==='edit')records[pos]=deck;
+  else {
+    if(records.some(d=>Number(d.num)===deck.num))for(const d of records)if(Number(d.num)>=deck.num)d.num=Number(d.num)+1;
+    records.push(deck);
+  }
+  if(action!=='delete' && fields.brand.value==='+')next.hiddenBrands=next.hiddenBrands.filter(b=>b!==deck.brand);
+  await publish(next);
+}
 async function transferDeck(id,button){
   button.disabled=true;
-  let pending,added;
   try{
-    await new Promise((resolve,reject)=>{
-      const tx=db.transaction('data','readwrite'),store=tx.objectStore('data');
-      const target=wish?'collection':'wishlist';
-      const source=store.get(section),destination=store.get(target);
-      destination.onsuccess=()=>{
-        pending=source.result;
-        const original=pending.find(deck=>deck.id===id);
-        if(!original)return;
-        const targetDecks=destination.result;
-        if(!wish && targetDecks.some(deck=>deck.copiedFrom===original.id))return;
-        const num=targetDecks.reduce((max,deck)=>Math.max(max,Number(deck.num)||0),0)+1;
-        added={...original,id:crypto.randomUUID(),num};
-        if(wish){
-          delete added.copiedFrom;
-          pending=pending.filter(deck=>deck.id!==id);
-          store.put(pending,section);
-        }else added.copiedFrom=original.id;
-        store.put([...targetDecks,added],target);
-      };
-      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
-    });
-    if($('detail').open)$('detail').close();
-    decks=pending;render();
-    $('transferStatus').textContent=added?'✓ '+added.name+' se ha añadido a '+(wish?'Mi colección':'Wishlist')+' con el n.º '+added.num+'.':(wish?'Esta ficha ya ha salido de la Wishlist.':'Esta ficha ya está en la Wishlist o ha cambiado en otra pestaña.');
-    if(added)transfers?.postMessage('transfer');
-  }catch{
-    $('transferStatus').textContent='No se ha podido guardar el cambio. Inténtalo de nuevo.';
-    if($('detail').open)$('detail').close();
-  }finally{button.disabled=false}
+    const next=structuredClone(sharedCatalog), target=next[wish?'collection':'wishlist'];
+    const deck=next[section].find(d=>d.id===id);
+    if(!wish && target.some(d=>d.copiedFrom===id))throw Error('Esta baraja ya está en la Wishlist.');
+    const copy={...deck,id:crypto.randomUUID(),num:1+target.reduce((max,d)=>Math.max(max,Number(d.num)),0)};
+    if(wish){delete copy.copiedFrom;next[section]=next[section].filter(d=>d.id!==id)}else copy.copiedFrom=id;
+    target.push(copy);await publish(next);
+    $('detail').close();$('transferStatus').textContent='Guardado en '+(wish?'Colección':'Wishlist')+' con el n.º '+copy.num+'.';
+  }catch(err){$('detail').close();$('transferStatus').textContent=err.message}finally{button.disabled=false}
 }
+$('access').onclick=async()=>{
+  try{
+    if(isOwner){await api({action:'logout'});location.reload();return}
+    $('loginError').textContent='';$('login').showModal();
+  }catch(err){$('transferStatus').textContent=err.message}
+};
+$('loginCancel').onclick=()=>$('login').close();
+$('loginForm').onsubmit=async e=>{
+  e.preventDefault();
+  try{await api({action:'login',password:$('password').value});$('password').value='';await refreshShelf();$('login').close()}
+  catch(err){$('loginError').textContent=err.message}
+};
+$('importLocal').onclick=async()=>{
+  try{
+    if(!await indexedDB.databases?.().then(list=>list.some(d=>d.name==='Naipes-prototipo')) && indexedDB.databases)throw Error('Este navegador no tiene una colección anterior.');
+    await initLocal();
+    const [collection,wishlist]=await Promise.all(['collection','wishlist'].map(k=>dbCall('readonly',s=>s.get(k))));
+    if(!collection||!wishlist)throw Error('No hay un catálogo anterior en este navegador.');
+    if(!confirm('¿Publicar las '+collection.length+' fichas de Colección y las '+wishlist.length+' de Wishlist de este navegador? Sustituirán el catálogo compartido actual.'))return;
+    await publish({collection,wishlist,hiddenBrands:JSON.parse(localStorage.getItem(hiddenBrandKey)||'[]')});
+    $('transferStatus').textContent='Catálogo anterior publicado.';
+  }catch(err){$('transferStatus').textContent=err.message}
+};
+
 $('collectDeck').onclick=()=>{if(!moving)transferDeck(active.id,$('collectDeck'))};
 
 const confirmation=$('confirmDelete');
@@ -375,9 +399,5 @@ $('confirmRemoval').onclick=async()=>{
   }finally{button.disabled=false}
 };
 form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{const brand=(fields.brand.value==='+'?fields.custom.value:fields.brand.value).trim(),name=fields.name.value.trim();if(!name||!brand)throw Error('Introduce un nombre y una marca.');const d={...(editing||{}),sources:readLinks(),currency:fields.currency.value,id:editing?.id||crypto.randomUUID(),name,brand,price:+fields.price.value,qty:+fields.qty.value,num:+fields.num.value,date:fields.date.value,desc:fields.desc.value,style:editing?.style??decks.length,photos:await Promise.all(draftPhotos.map(photo => photo.blob ? readPhoto(photo.blob) : photo.url))};await changeDeck(d,editing?'edit':'add');
-if(fields.brand.value === '+'){
-  const excluded = hiddenBrands();
-  if(excluded.delete(brand))localStorage.setItem(hiddenBrandKey,JSON.stringify([...excluded]));
-}
-transfers?.postMessage(section);$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
-init().catch(()=>{decks=seeds();render();$('count').textContent+=' · almacenamiento desactivado'});
+$('filter').value='';render();$('editor').close()}catch(err){$('error').textContent=err.message||'No se pudo guardar. Comprueba las fotos y el espacio disponible.'}finally{btn.disabled=false}};
+refreshShelf().catch(err=>{showCatalog(initialCatalog());$('transferStatus').textContent=err.message});
