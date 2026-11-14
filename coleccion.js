@@ -41,6 +41,7 @@ function dbCall(mode,fn){return new Promise((resolve,reject)=>{const tx=db.trans
 async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgradeneeded=()=>req.result.createObjectStore('data');db=await new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)});await new Promise((resolve,reject)=>{
   const tx=db.transaction('data','readwrite'),store=tx.objectStore('data');
   for(const key of ['collection','wishlist']){
+    const galleryVersion = store.get(key + '-gallery-version');
     const current=store.get(key),version=store.get(key+'-catalog-version');
     version.onsuccess=()=>{
       let records=current.result??seeds(key);
@@ -59,6 +60,21 @@ async function init(){const req=indexedDB.open('Naipes-prototipo',1);req.onupgra
         records = [...records, ...additions];
         store.put(records, key);
         store.put('theory11-1', key + '-catalog-version');
+      }
+      if (galleryVersion.result !== 1) {
+        records = records.map(deck => {
+          if (deck.photos?.length !== 1) return deck;
+          const gallery = galeriasPublicadas[deck.id] || galeriasPublicadas[deck.copiedFrom] ||
+            Object.values(galeriasPublicadas).find(item => item.previous === deck.photos[0] && item.name === deck.name);
+          if (!gallery || gallery.previous !== deck.photos[0]) return deck;
+          const sources = [...(deck.sources || [])];
+          if (gallery.source && !sources.some(source => source.url === gallery.source.url)) {
+            sources.push(gallery.source);
+          }
+          return {...deck, sources, photos: gallery.photos};
+        });
+        store.put(records, key);
+        store.put(1, key + '-gallery-version');
       }
       if(key===section)decks=records;
     };
