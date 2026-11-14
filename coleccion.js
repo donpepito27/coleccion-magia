@@ -328,11 +328,18 @@ async function publish(next){
 async function changeDeck(deck,action){
   const next=structuredClone(sharedCatalog), records=next[section];
   const pos=records.findIndex(d=>d.id===deck.id);
-  if(action==='delete')records.splice(pos,1);
-  else if(action==='edit')records[pos]=deck;
-  else {
-    if(records.some(d=>Number(d.num)===deck.num))for(const d of records)if(Number(d.num)>=deck.num)d.num=Number(d.num)+1;
-    records.push(deck);
+  if(action!=='add' && pos<0)throw Error('Esta baraja ya no está en la lista.');
+  if(action==='delete'){
+    records.splice(pos,1);
+  }else{
+    const target=Number(deck.num);
+    if(action==='add' || Number(records[pos].num)!==target){
+      for(const other of records){
+        if(other.id!==deck.id && Number(other.num)>=target)other.num=Number(other.num)+1;
+      }
+    }
+    if(action==='edit')records[pos]=deck;
+    else records.push(deck);
   }
   if(action!=='delete' && fields.brand.value==='+')next.hiddenBrands=next.hiddenBrands.filter(b=>b!==deck.brand);
   await publish(next);
