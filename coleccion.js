@@ -82,8 +82,36 @@ async function initLocal(){const req=indexedDB.open('Naipes-prototipo',1);req.on
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
 });}
 function photo(d,i){return d.photos.length?d.photos[i]:art(d,!!i)}
-function render(){known.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
-let list=decks.filter(d=>(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
+const shops = {
+  'vanishingincmagic.com':'Vanishing Inc.', 'penguinmagic.com':'Penguin Magic',
+  'tienda.magiaycardistry.com':'Magia & Cardistry', 'magicaplanet.com':'Magicaplanet',
+  'artofplay.com':'Art of Play', 'store.theory11.com':'Theory11', 'fontainecards.com':'Fontaine',
+  'anyoneworldwide.com':'Anyone Worldwide', 'shop.52kards.com':'52Kards',
+  'playingcarddecks.com':'PlayingCardDecks', 'magicshop.co.uk':'Magic Shop',
+  'rareplayingcards.com':'Rare Playing Cards', 'magicworld.co.uk':'MagicWorld',
+  'kingofcards.com':'King of Cards', 'classicdecks.com':'Classic Decks',
+  'deckita.com':'Deckita', 'x-decks.com':'X-Decks'
+};
+function purchaseShop(source) {
+  if (source.lookup || source.available === false) return '';
+  try {
+    const url = new URL(source.url);
+    if (!['http:', 'https:'].includes(url.protocol) || url.pathname === '/' ||
+        /^\/(search|s|list|cart|checkout|account)(\/|$)/i.test(url.pathname)) return '';
+    const host = url.hostname.replace(/^www\./,'').replace(/^(shop|wholesale)\.penguinmagic\.com$/,'penguinmagic.com');
+    return shops[host] || host;
+  } catch { return ''; }
+}
+function filterShops() {
+  const byDeck = new Map(decks.map(deck => [deck, (deck.sources || []).map(purchaseShop).filter(Boolean)]));
+  const names = [...new Set([...byDeck.values()].flat())].sort((a,b) => a.localeCompare(b,'es'));
+  const select = $('shopFilter'), previous = select.value;
+  opts(select, [['Todas las tiendas',''], ...names.map(name => [name,name])]);
+  select.value = names.includes(previous) ? previous : '';
+  return deck => !select.value || byDeck.get(deck).includes(select.value);
+}
+function render(){const matchesShop=filterShops();known.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));let f=$('filter').value;opts($('filter'),[['Todas las marcas',''],...known.map(b=>[b,b])]);$('filter').value=known.includes(f)?f:'';const query=searchable($('search').value);
+let list=decks.filter(d=>matchesShop(d)&&(!$('filter').value||d.brand===$('filter').value)&&searchable(d.brand+' '+d.name).includes(query));let sort=$('sort').value;list.sort((a,b)=>{if(sort.toLowerCase()==='d'){if(!a.date||!b.date)return Number(!a.date)-Number(!b.date);return a.date.localeCompare(b.date)*(sort==='D'?-1:1)}if(sort.toLowerCase()==='p')return (centsIn(a.price,a.currency)-centsIn(b.price,b.currency))*(sort==='P'?-1:1);const k={p:'price',q:'qty'}[sort.toLowerCase()]||'num';return (a[k]-b[k])*(sort==='P'||sort==='Q'?-1:1)});$('count').textContent=(list.length===decks.length?String(decks.length):list.length+' de '+decks.length)+' '+(decks.length===1?'ficha':'fichas');
 $('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();for(const d of list){const t=document.createElement('button');t.className='tile';t.innerHTML='<span class="stand"><img alt="" class="pack"></span><span class="caption"><strong></strong><span class="price"></span></span><span class="meta"></span>';t.querySelector('img').src=photo(d,0);t.querySelector('img').loading='lazy';t.querySelector('strong').textContent=d.name;t.querySelector('.price').textContent=dualPrice(d.price,d.currency);t.querySelector('.meta').textContent='N.º '+String(d.num).padStart(3,'0')+'  /  '+d.brand.toUpperCase();t.onclick=()=>openDeck(d,t);
   const wrapper=document.createElement('div');wrapper.className='wish-item';
   const tick=document.createElement('button');tick.className='wish-tick';tick.type='button';tick.textContent=wish?'✓':'♡';
@@ -91,7 +119,7 @@ $('total').textContent='Total '+totalPrice(decks);$('shelf').replaceChildren();f
   tick.onclick=()=>transferDeck(d.id,tick);
   wrapper.append(t,tick);$('shelf').append(wrapper);
 }if(!list.length)$('shelf').innerHTML='<p class="empty">Sin barajas para esta selección.</p>'}
-$('filter').onchange=$('sort').onchange=render;$('search').oninput=render;
+$('shopFilter').onchange=$('filter').onchange=$('sort').onchange=render;$('search').oninput=render;
 function gallery(){const n=active.photos.length||2;$('hero').src=photo(active,index);$('hero').alt=active.name+', imagen '+(index+1);$('page').textContent=(index+1)+' / '+n;$('prev').disabled=$('next').disabled=n<2}
 function shift(delta){if(moving)return;index=(index+delta+(active.photos.length||2))%(active.photos.length||2);gallery()}$('prev').onclick=()=>shift(-1);$('next').onclick=()=>shift(1);
 function fit(el){const r=el.getBoundingClientRect(),ratio=el.naturalWidth/el.naturalHeight||432/590,w=Math.min(r.width,r.height*ratio),h=w/ratio;return {x:r.x+(r.width-w)/2,y:r.y+(r.height-h)/2,w,h}}
@@ -192,7 +220,7 @@ function sourceLabel(source,currency){
   if(source.label)return source.label;
   if(!source.shop)return source.url;
   const prefix=source.lookup?'Buscar en ':'Ver en ';
-  return prefix+source.shop+(source.price===undefined?'':' · '+dualPrice(source.price,currency));
+  return prefix+source.shop+(source.price===undefined?'':' · '+dualPrice(source.price,source.currency||currency));
 }
 function appendLink(source){
   const row=$('linkTemplate').content.firstElementChild.cloneNode(true);
